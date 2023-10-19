@@ -1,1 +1,1 @@
-# deppsym-senior-project
+# deepsym-senior-project
