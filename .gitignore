@@ -1,0 +1,6 @@
+__pycache__/
+
+crafter-logs/env-recording/
+crafter-logs/images/
+
+autoencoder/results/
