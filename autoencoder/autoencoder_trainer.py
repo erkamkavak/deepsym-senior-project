@@ -26,10 +26,12 @@ class AutoEncoderTrainer():
         if not os.path.exists(self.save_path):
             os.makedirs(self.save_path)
             os.makedirs(f"{self.save_path}/logs")
+            os.makedirs(f"{self.save_path}/logs/val")
+            os.makedirs(f"{self.save_path}/logs/test")
 
-    def save_output_ground_truth(self, output, ground_truth, filename):
-        output = output.cpu().numpy()
-        ground_truth = ground_truth.cpu().numpy()
+    def save_output_ground_truth(self, output, ground_truth, filename, val=False):
+        output = output.detach().cpu().numpy()
+        ground_truth = ground_truth.detach().cpu().numpy()
 
         output = output * 0.5 + 0.5
         ground_truth = ground_truth * 0.5 + 0.5
@@ -37,7 +39,8 @@ class AutoEncoderTrainer():
         f, [ax1, ax2] = plt.subplots(1, 2, figsize=(32, 10))
         ax1.imshow(ground_truth[0].transpose(1, 2, 0))
         ax2.imshow(output[0].transpose(1, 2, 0))
-        plt.savefig(f"{self.save_path}/logs/{filename}")
+        folder = "val" if val else "test"
+        plt.savefig(f"{self.save_path}/logs/{folder}/{filename}")
         plt.close()
 
     def validate_one_image(self, epoch):
@@ -45,7 +48,10 @@ class AutoEncoderTrainer():
             input = data.cuda()
             output = self.model(input)
             loss = self.model.loss_function(input, output)
-            self.save_output_ground_truth(output, input, f"epoch_{epoch}.png")
+            if type(output) == tuple:
+                self.model.save_other_outputs(output, f"{self.save_path}/logs/val/", f"epoch_{epoch}")
+                output = output[0]
+            self.save_output_ground_truth(output, input, f"epoch_{epoch}.png", val=True)
             return loss
 
     def train_one_epoch(self):
@@ -71,6 +77,7 @@ class AutoEncoderTrainer():
         for epoch in range(NUM_EPOCHS):
             avg_loss = self.train_one_epoch()
             if epoch % 10 == 0:
+                self.validate_one_image(epoch)
                 print(f"Epoch: {epoch}/{NUM_EPOCHS},  Loss: {avg_loss:.4f}")
             
             if avg_loss < best_loss:
@@ -94,6 +101,9 @@ class AutoEncoderTrainer():
                 total_loss += loss.item()
 
                 if curr_iter % 10 == 0:
+                    if type(output) == tuple:
+                        self.model.save_other_outputs(output, f"{self.save_path}/logs/test/", f"output_{curr_iter}")
+                        output = output[0]
                     self.save_output_ground_truth(output, input, f"output_{curr_iter}.png")
                 curr_iter += 1
         
