@@ -1,14 +1,19 @@
-from autoencoder_trainer import AutoEncoderTrainer
-from conv_autoencoder import ConvAutoEncoder
-from slot_attn_autoencoder import SlotAttentionAutoEncoderV1, SlotAttentionAutoEncoderV2, SlotAttentionAutoEncoderv5
+from trainers.autoencoder_trainer import AutoEncoderTrainer
+from models.conv_autoencoder import ConvAutoEncoder
+from models.conv_binary_autoencoder import ConvBinaryFeatureAutoEncoder
+from models.slot_attn_autoencoder import SlotAttentionAutoEncoderV1, SlotAttentionAutoEncoderV2, SlotAttentionAutoEncoderv5
 # from variational_autoencoder import VCAE
 from dataset_loader import DatasetLoader
 
 from config import *
 
-# model = ConvAutoEncoder(
-#     input_channel_size=3,
-#     hidden_channel_sizes=HIDDEN_CHANNEL_SIZES, 
+model = ConvAutoEncoder(
+    input_channel_size=3,
+    hidden_channel_sizes=HIDDEN_CHANNEL_SIZES, 
+)
+# model = ConvBinaryFeatureAutoEncoder(
+#     input_channel_size=3, 
+#     hidden_channel_sizes=HIDDEN_CHANNEL_SIZES
 # )
 # model = SlotAttentionAutoEncoderV1(
 #     inchannels=3,
@@ -16,15 +21,16 @@ from config import *
 #     n_slots=8,
 #     n_iters=3,
 # )
-model = SlotAttentionAutoEncoderv5(
-    inchannels=3,
-    hidden_channel_sizes=HIDDEN_CHANNEL_SIZES,
-    n_slots=8,
-    n_iters=3,
-)
+# model = SlotAttentionAutoEncoderv5(
+#     inchannels=3,
+#     hidden_channel_sizes=HIDDEN_CHANNEL_SIZES,
+#     n_slots=8,
+#     n_iters=3,
+# )
 
 def train(args):
-    train_dataloader = DatasetLoader(DATASET_PATH)
+    dataset_path = f"{DATASET_PATH}/{args.dataset_name}.hdf5"
+    train_dataloader = DatasetLoader(dataset_path)
 
     trainer = AutoEncoderTrainer(
         model=model,
@@ -35,7 +41,9 @@ def train(args):
     trainer.train()
 
 def test(args):
-    dataset = DatasetLoader(DATASET_PATH, is_train=False)
+    dataset_path = f"{DATASET_PATH}/{args.dataset_name}"
+
+    dataset = DatasetLoader(dataset_path, is_train=False)
     trainer = AutoEncoderTrainer(
         model=model,
         dataset=dataset, 
@@ -49,6 +57,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     parser.add_argument("--model-name", type=str, help="Name of the model", default="default-model")
+    parser.add_argument("--dataset-name", type=str, help="Name of the dataset", default="default-dataset")
     parser.add_argument('-eval', '--eval', action="store_true")
     args = parser.parse_args()
 

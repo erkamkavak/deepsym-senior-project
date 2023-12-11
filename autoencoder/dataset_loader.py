@@ -3,6 +3,7 @@ from torch.utils.data import Dataset
 from torchvision import transforms
 import cv2
 import os
+import h5py
 
 from config import TRAIN_TEST_SPLIT
 
@@ -12,23 +13,13 @@ class DatasetLoader(Dataset):
         if not os.path.exists(dataset_path):
             raise ValueError(f"Dataset path {dataset_path} does not exist")
 
-        self.observations = []
-        image_files = os.listdir(dataset_path)
-        if len(image_files) == 0:
-            raise ValueError(f"Dataset path {dataset_path} is empty")
+        self.hdf5_file = h5py.File(self.dataset_path, 'r')
+        self.timestamps = self.hdf5_file["timestamps"]['timestamps']
 
         if is_train:
-            image_files = image_files[:int(len(image_files) * TRAIN_TEST_SPLIT)]
+            self.timestamps = self.timestamps[:int(len(self.timestamps) * TRAIN_TEST_SPLIT)]
         else: 
-            image_files = image_files[int(len(image_files) * TRAIN_TEST_SPLIT):]
-
-        for image in image_files:
-            if not image.endswith('.png'):
-                continue
-            image_path = os.path.join(dataset_path, image)
-            image = cv2.imread(image_path)
-            self.observations.append(image)
-        print(f"Dataset loaded: {len(self.observations)} images")
+            self.timestamps = self.timestamps[int(len(self.timestamps) * TRAIN_TEST_SPLIT):]
 
         self.transform = transforms.Compose([
             transforms.ToTensor(),
@@ -36,10 +27,18 @@ class DatasetLoader(Dataset):
         ])
         
     def __len__(self):
-        return len(self.observations)
+        return len(self.timestamps)
     
     def __getitem__(self, idx):
-        return self.transform(self.observations[idx])
+        timestamp = str(self.timestamps[idx])
+        current_state = np.array(self.hdf5_file['current_state'][timestamp])
+        action = np.array(self.hdf5_file['current_state'][timestamp])
+        next_state = np.array(self.hdf5_file['next_state'][timestamp])
+
+        current_state = self.transform(current_state)
+        next_state = self.transform(next_state)
+
+        return current_state, action, next_state
     
 if __name__ == "__main__": 
     from config import DATASET_PATH

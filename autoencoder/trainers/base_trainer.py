@@ -6,20 +6,24 @@ import matplotlib.pyplot as plt
 
 import torch
 import torch.nn as nn
+import abc
 
 from torch.utils.data import DataLoader, Dataset
 
-from config import *
+from config import BATCH_SIZE, LEARNING_RATE, SAVE_PATH, NUM_EPOCHS
 
 matplotlib.use('Agg')
 
-class AutoEncoderTrainer(): 
+class BaseTrainer(): 
+    __metaclass__ = abc.ABCMeta
+
     def __init__(self, model, dataset : Dataset, batch_size=BATCH_SIZE, model_name="default-model"): 
-        super(AutoEncoderTrainer, self).__init__()
+        super(BaseTrainer, self).__init__()
         self.model = model
         self.model_name = model_name
 
         self.optimizer = torch.optim.Adam(model.parameters(), lr=LEARNING_RATE, weight_decay=1e-5)
+        # self.lr_scheduler = ExponentialLR(self.optimizer, gamma=0.9)
         self.data_loader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
         self.save_path = f"{SAVE_PATH}/{self.model_name}"
@@ -43,28 +47,38 @@ class AutoEncoderTrainer():
         plt.savefig(f"{self.save_path}/logs/{folder}/{filename}")
         plt.close()
 
+    @abc.abstractmethod
+    def pass_batch_from_model(self, batch): 
+        # input = data.cuda()
+        # output = self.model(input)
+        # loss = self.model.loss_function(input, output)
+        return
+
+    @abc.abstractmethod
+    def save_batch_logs(self, batch, save_path, curr_iter, val=False): 
+        # if type(output) == tuple:
+        #     self.model.save_other_outputs(output, f"{self.save_path}/logs/test/", f"output_{curr_iter}")
+        #     output = output[0]
+        # self.save_output_ground_truth(output, input, f"output_{curr_iter}.png")
+        pass
+
     def validate_one_image(self, epoch):
-        for data in self.data_loader:
-            input = data.cuda()
-            output = self.model(input)
-            loss = self.model.loss_function(input, output)
-            if type(output) == tuple:
-                self.model.save_other_outputs(output, f"{self.save_path}/logs/val/", f"epoch_{epoch}")
-                output = output[0]
-            self.save_output_ground_truth(output, input, f"epoch_{epoch}.png", val=True)
+        for batch in self.data_loader:
+            loss = self.pass_batch_from_model(batch)
+
+            self.save_batch_logs(batch, save_path="{self.save_path}/logs/val/", curr_iter=epoch, val=True)
             return loss
 
     def train_one_epoch(self):
         total_loss = 0
-        for data in self.data_loader:
-            input = data.cuda()
-            output = self.model(input)
-            loss = self.model.loss_function(input, output)
+        for batch in self.data_loader:
+            loss = self.pass_batch_from_model(batch)
             total_loss += loss.item()
 
             self.optimizer.zero_grad()
             loss.backward()
             self.optimizer.step()
+        # self.lr_scheduler.step()
         
         avg_loss = total_loss / len(self.data_loader)
         return avg_loss
@@ -85,7 +99,7 @@ class AutoEncoderTrainer():
                 torch.save(self.model.state_dict(), f"{self.save_path}/best.pt")
 
         torch.save(self.model.state_dict(), f"{self.save_path}/last.pt")
-        
+
     def eval(self): 
         self.model.load_state_dict(torch.load(f"{self.save_path}/best.pt"))
         self.model.cuda()
@@ -94,17 +108,12 @@ class AutoEncoderTrainer():
         total_loss = 0
         curr_iter = 0
         with torch.no_grad():
-            for data in self.data_loader:
-                input = data.cuda()
-                output = self.model(input)
-                loss = self.model.loss_function(input, output)
+            for batch in self.data_loader:
+                loss = self.pass_batch_from_model(batch)
                 total_loss += loss.item()
 
                 if curr_iter % 10 == 0:
-                    if type(output) == tuple:
-                        self.model.save_other_outputs(output, f"{self.save_path}/logs/test/", f"output_{curr_iter}")
-                        output = output[0]
-                    self.save_output_ground_truth(output, input, f"output_{curr_iter}.png")
+                    self.save_batch_logs()
                 curr_iter += 1
         
         avg_loss = total_loss / len(self.data_loader)
