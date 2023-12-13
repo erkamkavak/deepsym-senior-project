@@ -1,13 +1,19 @@
 from trainers.autoencoder_trainer import AutoEncoderTrainer
+from trainers.next_state_trainer import NextStateTrainer
 from models.conv_autoencoder import ConvAutoEncoder
 from models.conv_binary_autoencoder import ConvBinaryFeatureAutoEncoder
 from models.slot_attn_autoencoder import SlotAttentionAutoEncoderV1, SlotAttentionAutoEncoderV2, SlotAttentionAutoEncoderv5
+from models.conv_predictor import ConvPredictor
 # from variational_autoencoder import VCAE
 from dataset_loader import DatasetLoader
 
 from config import *
 
-model = ConvAutoEncoder(
+# model = ConvAutoEncoder(
+#     input_channel_size=3,
+#     hidden_channel_sizes=HIDDEN_CHANNEL_SIZES, 
+# )
+model = ConvPredictor(
     input_channel_size=3,
     hidden_channel_sizes=HIDDEN_CHANNEL_SIZES, 
 )
@@ -32,19 +38,26 @@ def train(args):
     dataset_path = f"{DATASET_PATH}/{args.dataset_name}.hdf5"
     train_dataloader = DatasetLoader(dataset_path)
 
-    trainer = AutoEncoderTrainer(
+    # trainer = AutoEncoderTrainer(
+    #     model=model,
+    #     dataset=train_dataloader, 
+    #     batch_size=BATCH_SIZE,
+    #     model_name=args.model_name
+    # )
+    trainer = NextStateTrainer(
         model=model,
         dataset=train_dataloader, 
         batch_size=BATCH_SIZE,
         model_name=args.model_name
     )
+
     trainer.train()
 
 def test(args):
     dataset_path = f"{DATASET_PATH}/{args.dataset_name}"
 
     dataset = DatasetLoader(dataset_path, is_train=False)
-    trainer = AutoEncoderTrainer(
+    trainer = NextStateTrainer(
         model=model,
         dataset=dataset, 
         batch_size=1,
