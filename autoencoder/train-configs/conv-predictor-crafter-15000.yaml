@@ -1,0 +1,9 @@
+model_name: "conv-predictor-crafter-15000-fixed-view"
+dataset_name: "crafter-15000-fixed-view"
+model: 
+  name: ConvPredictor
+  params:
+    input_channel_size: 3
+    hidden_channel_sizes: [8, 16, 32, 64, 128]
+    pretrained_model_name: "conv-autoencoder"
+trainer: NextStateTrainer

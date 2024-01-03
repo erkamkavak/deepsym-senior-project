@@ -2,31 +2,62 @@ import torch
 import torch.nn as nn
 
 from config import INPUT_SIZE
-from .model_utils import Encoder, build_decoder
+from .model_utils import Encoder, Decoder, MLP
 
 class ConvPredictor(nn.Module): 
-    def __init__(self, input_channel_size, hidden_channel_sizes): 
+    def __init__(self, input_channel_size, hidden_channel_sizes, 
+                 pretrained_model_name=None, 
+                 is_encoder_pretrained=False, 
+                 is_decoder_pretrained=False): 
         super(ConvPredictor, self).__init__() 
 
-        self.feature_encoder = Encoder(input_channel_size, hidden_channel_sizes)
-        hidden_channel_sizes[-1] += 1 # add action channel
-        self.decoder = build_decoder(hidden_channel_sizes, input_channel_size) 
+        if is_encoder_pretrained: 
+            self.feature_encoder = Encoder.load_model(input_channel_size, hidden_channel_sizes, pretrained_model_name)
+        else: 
+            self.feature_encoder = Encoder(input_channel_size, hidden_channel_sizes)
+
+        mlp_layers = [
+            hidden_channel_sizes[-1] + 1, 
+            hidden_channel_sizes[-1], 
+            hidden_channel_sizes[-1],
+        ]
+        self.next_state_feature_predictor = MLP(mlp_layers)
+        # self.next_state_feature_predictor = nn.MultiheadAttention(embed_dim=, num_heads=)
+
+        if is_decoder_pretrained: 
+            self.feature_decoder = Decoder.load_model(hidden_channel_sizes, input_channel_size, pretrained_model_name)
+        else: 
+            self.feature_decoder = Decoder(hidden_channel_sizes, input_channel_size)
 
     def forward(self, state, action):
         features = self.feature_encoder(state) # B, C, H, W
 
-        action = action.unsqueeze(2).unsqueeze(3) # B, 1, 1, 1
-        action = action.repeat(1, 1, features.shape[2], features.shape[3]) # B, 1, H, W
-        features = torch.cat((features, action), dim=1) # B, C + 1, H, W
-        next_state = self.decoder(features)
-        return next_state
+        # action -> (B) -> (B, 1, 1, 1) -> (B, 1, H, W)
+        action = action.unsqueeze(1).unsqueeze(2).unsqueeze(3) # B, 1, 1, 1
+        action = action.repeat(1, features.shape[2], features.shape[3], 1) # B, H, W, 1
+
+        features = features.permute(0, 2, 3, 1) # B, H, W, C
+
+        # B, C + 1, H, W -> B, C, H, W
+        next_state_features = self.next_state_feature_predictor(torch.cat((features, action), dim=3))
+        next_state_features = next_state_features.permute(0, 3, 1, 2) # B, C, H, W
+
+        next_state = self.feature_decoder(next_state_features)
+        return next_state, next_state_features
 
     def loss_function(self, ground_truth, output):
-        return nn.MSELoss()(ground_truth, output)
+        # next_state_pred, next_state_features_pred = output
+        # next_state_features = self.feature_encoder(ground_truth)
+        # feature_loss = nn.MSELoss()(next_state_features, next_state_features_pred)
+
+        return nn.MSELoss()(ground_truth, output[0])
     
     def save_encoder(self, save_path): 
         self.feature_encoder.save_model(save_path)
+        self.feature_decoder.save_model(save_path)
 
+    def save_other_outputs(self, output, path, name): 
+        pass
 
 if __name__ == "__main__":
     # image must have a size as power of 2

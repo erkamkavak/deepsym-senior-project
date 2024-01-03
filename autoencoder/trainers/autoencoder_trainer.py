@@ -17,4 +17,4 @@ class AutoEncoderTrainer(BaseTrainer):
         if type(output) == tuple:
             self.model.save_other_outputs(output, f"{self.save_path}/logs/test/", f"output_{curr_iter}")
             output = output[0]
-        self.save_output_ground_truth(output, input, f"output_{curr_iter}.png", val)
+        self.save_input_output_ground_truth(input, output, input, f"output_{curr_iter}.png", val)

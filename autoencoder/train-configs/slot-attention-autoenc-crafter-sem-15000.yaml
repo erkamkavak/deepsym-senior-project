@@ -1,0 +1,10 @@
+model_name: "slot-attention-autoenc-crafter-sem-15000"
+dataset_name: "crafter-15000-sem"
+model: 
+  name: SlotAttentionAutoEncoderV1
+  params:
+    inchannels: 1
+    spatial_size: [64, 6]
+    n_slots: 8
+    n_iters: 3
+trainer: AutoEncoderTrainer

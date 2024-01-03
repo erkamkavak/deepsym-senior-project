@@ -2,25 +2,27 @@ import torch
 import torch.nn as nn
 
 from config import INPUT_SIZE
-from .model_utils import Encoder, build_decoder
+from .model_utils import Encoder, Decoder
 
 class ConvAutoEncoder(nn.Module): 
-    def __init__(self, input_channel_size, hidden_channel_sizes): 
+    def __init__(self, input_channel_size, hidden_channel_sizes, model_name="default"): 
         super(ConvAutoEncoder, self).__init__() 
+        self.model_name = model_name
 
         self.feature_encoder = Encoder(input_channel_size, hidden_channel_sizes)
-        self.decoder = build_decoder(hidden_channel_sizes, input_channel_size) 
+        self.feature_decoder = Decoder(hidden_channel_sizes, input_channel_size) 
 
     def forward(self, x):
         x = self.feature_encoder(x) # B, C, H, W
-        x = self.decoder(x)
+        x = self.feature_decoder(x)
         return x
 
     def loss_function(self, ground_truth, output):
         return nn.MSELoss()(ground_truth, output)
     
-    def save_encoder(self, save_path): 
-        self.feature_encoder.save_model(save_path)
+    def save_model_parts(self): 
+        self.feature_encoder.save_model(self.model_name)
+        self.feature_decoder.save_model(self.model_name)
 
 
 if __name__ == "__main__":

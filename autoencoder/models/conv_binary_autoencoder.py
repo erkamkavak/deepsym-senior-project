@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 from config import INPUT_SIZE
-from .model_utils import Encoder, MLP
+from .model_utils import Encoder, build_decoder
 
 
 class StraightThrough(torch.autograd.Function):
@@ -20,22 +20,10 @@ class ConvBinaryFeatureAutoEncoder(nn.Module):
         super(ConvBinaryFeatureAutoEncoder, self).__init__() 
 
         self.encoder = Encoder(input_channel_size, hidden_channel_sizes)
-
-        self.mlp = MLP([hidden_channel_sizes[-1], hidden_channel_sizes[-1], hidden_channel_sizes[-1]])
         self.binarizer = StraightThrough.apply
 
-        decoder_layers = []
-        for i in range(len(hidden_channel_sizes) - 1, 0, -1): 
-            decoder_layers.append(nn.ConvTranspose2d(hidden_channel_sizes[i], hidden_channel_sizes[i-1], 
-                                                     kernel_size=3, stride=2, padding=1, output_padding=1))
-            decoder_layers.append(nn.ReLU(True))
+        self.decoder = build_decoder(hidden_channel_sizes, input_channel_size) 
         
-        decoder_layers.append(nn.ConvTranspose2d(hidden_channel_sizes[0], input_channel_size, 
-                                                 kernel_size=3, padding=1))
-        decoder_layers.append(nn.Sigmoid())
-    
-        self.decoder = nn.Sequential(*decoder_layers)
-
         if pretrained_model != "": 
             self.load_pretrained_model(pretrained_model)
 
@@ -48,13 +36,8 @@ class ConvBinaryFeatureAutoEncoder(nn.Module):
         self.load_state_dict(pretrained_dict)
 
     def forward(self, x):
-        x = self.encoder(x)
-        
-        x = x.permute(0, 2, 3, 1) # B, H, W, C
-        x = self.mlp(x) # B, H, W, C
-        x = self.binarizer(x) # B, H, W, C
-        x = x.permute(0, 3, 1, 2) # B, C, H, W
-
+        x = self.encoder(x)        
+        x = self.binarizer(x)
         x = self.decoder(x)
         return x
 

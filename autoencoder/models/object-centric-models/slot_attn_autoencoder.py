@@ -201,7 +201,11 @@ class SlotAttentionAutoEncoderV1(nn.Module):
             nn.ReLU(True),
             nn.ConvTranspose2d(n_hidden_channel, n_hidden_channel, kernel_size=4, stride=2, padding=1), # 16x16 -> 32x32
             nn.ReLU(True),
-            nn.ConvTranspose2d(n_hidden_channel, 4, kernel_size=4, stride=2, padding=1), # 32x32 -> 64x64
+            nn.ConvTranspose2d(n_hidden_channel, n_hidden_channel, kernel_size=4, stride=2, padding=1), # 32x32 -> 64x64
+            nn.ReLU(True),
+            nn.ConvTranspose2d(n_hidden_channel, n_hidden_channel, kernel_size=1, stride=1), # 64x64 -> 64x64
+            nn.ReLU(True),
+            nn.ConvTranspose2d(n_hidden_channel, 4, kernel_size=1, stride=1), # 32x32 -> 64x64
         )
 
         self.encoder_pos_embed = SoftPositionEmbed(n_hidden_channel, self.spatial_size)
@@ -238,9 +242,9 @@ class SlotAttentionAutoEncoderV1(nn.Module):
     def save_other_outputs(self, output, folderpath, filename):
         _, out, mask, slots = output
 
-        out = out.cpu().numpy()
-        mask = mask.cpu().numpy()
-        slots = slots.cpu().numpy()
+        out = out.detach().cpu().numpy()
+        mask = mask.detach().cpu().numpy()
+        slots = slots.detach().cpu().numpy()
 
         out = out * 0.5 + 0.5
         mask = mask * 0.5 + 0.5
@@ -259,7 +263,129 @@ class SlotAttentionAutoEncoderV1(nn.Module):
             # plt.savefig(f"{folderpath}/{filename}_slot_{i}_slot.png")        
             # plt.close()
 
+def spatial_broadcast_linear(x, resolution):
+    n_batch, n_slots, n_dim = x.shape
+    x = x.reshape(n_batch*n_slots, n_dim, 1)
+    grid = torch.tile(x, (1, 1, resolution))
+    return grid
 
+def build_pos_rows(resolution): 
+    range = torch.linspace(0, 1, resolution).unsqueeze(0)
+    rows = torch.cat([range, 1 - range], dim=0).unsqueeze(0)
+    return rows
+
+class SoftPositionEmbedLinear(torch.nn.Module):
+    def __init__(self, hidden_channels, resolution):
+        # resolution -> (H*W)
+        super(SoftPositionEmbedLinear, self).__init__()
+        self.proj = torch.nn.Linear(2, hidden_channels)
+        self.pos_row = build_pos_rows(resolution) # B, 2, H*W 
+    
+    def forward(self, x):
+        # x -> (B, C, H*W)
+        row = self.pos_row.to(x.device).permute(0, 2, 1)
+        out = self.proj(row).permute(0, 2, 1) # B, C, H*W
+        return x + out 
+    
+class SlotAttentionLinear(torch.nn.Module): 
+    def __init__(self, inchannels, spatial_size, n_slots, n_iters):
+        super(SlotAttentionLinear, self).__init__()
+        self.spatial_size = spatial_size
+        self.n_slots = n_slots
+        self.n_iters = n_iters
+
+        self.slot_attention = SlotAttention(
+            n_iters=self.n_iters,
+            n_slots=self.n_slots,
+            input_dim=64,
+            slot_dim=64,
+            mlp_hidden=128,
+        )
+        
+        self.encoder = nn.Sequential(
+            nn.Linear(inchannels, 64),
+            nn.ReLU(True),
+            nn.Linear(64, 64),
+            nn.ReLU(True),
+            nn.Linear(64, 64),
+            nn.ReLU(True),
+            nn.Linear(64, 64),
+            nn.ReLU(True),
+        )
+        encoder_output_channels = 64; 
+
+        self.decoder_initial_size = 8 * 8
+        input_size = spatial_size[0] * spatial_size[1]
+        self.decoder_spatial = nn.Sequential(
+            nn.Linear(self.decoder_initial_size, input_size // 16),
+            nn.ReLU(True),
+            nn.Linear(input_size // 16, input_size // 8),
+            nn.ReLU(True),
+            nn.Linear(input_size // 8, input_size // 4),
+            nn.ReLU(True),
+            nn.Linear(input_size // 4, input_size // 2),
+            nn.ReLU(True),
+            nn.Linear(input_size // 2, input_size),
+        )
+        self.decoder_channel = nn.Linear(64, 4)
+
+        self.encoder_pos_embed = SoftPositionEmbedLinear(64, input_size)
+        self.decoder_pos_embed = SoftPositionEmbedLinear(64, self.decoder_initial_size)
+
+        self.layer_norm = nn.LayerNorm(encoder_output_channels)
+        self.mlp = MLP([encoder_output_channels, encoder_output_channels, encoder_output_channels])
+
+    def forward(self, x):
+        n_batch, n_channel, n_height, n_width = x.shape # (B, C, H, W)
+        x = x.permute(0, 2, 3, 1).reshape(n_batch, -1, n_channel) # (B, H*W, C) 
+        x = self.encoder(x) # (B, H*W, 64)
+        x = self.encoder_pos_embed(x.permute(0, 2, 1)).permute(0, 2, 1) # (B, H*W, 64)
+        x = self.mlp(self.layer_norm(x)) # (B, H*W, 64)
+
+        slots = self.slot_attention(x) # (n_batch, n_slots, n_hidden_channel)
+        x = spatial_broadcast_linear(slots, self.decoder_initial_size) # (n_batch * n_slots, n_hidden_channel, dec_init_h, dec_init_w)
+        x = x.reshape(x.shape[0], x.shape[1], -1) # (n_batch * n_slots, n_hidden_channel, dec_init_h*dec_init_w)
+
+        x = self.decoder_pos_embed(x) # (n_batch * n_slots, n_hidden_channel, dec_init_h*dec_init_w)
+        x = self.decoder_spatial(x) # (n_batch * n_slots, 64, h*w)
+        x = self.decoder_channel(x.permute(0, 2, 1)).permute(0, 2, 1) # (n_batch * n_slots, 4, h*w)
+
+        x = x.reshape(n_batch, self.n_slots, 4, n_height, n_width) # (n_batch, n_slots, 4, h, w)
+        out, mask = torch.split(x, [3, 1], dim=2)
+        # out -> (n_batch, n_slots, 3, h, w)
+        # mask -> (n_batch, n_slots, 1, h, w)
+
+        mask = nn.functional.softmax(mask, dim=1)
+        result = (out * mask).sum(dim=1)
+        return result, out, mask, slots
+    
+    def loss_function(self, ground_truth, output):
+        output = output[0]
+        return nn.MSELoss()(ground_truth, output)
+    
+    def save_other_outputs(self, output, folderpath, filename):
+        _, out, mask, slots = output
+
+        out = out.detach().cpu().numpy()
+        mask = mask.detach().cpu().numpy()
+        slots = slots.detach().cpu().numpy()
+
+        out = out * 0.5 + 0.5
+        mask = mask * 0.5 + 0.5
+        slots = slots * 0.5 + 0.5
+
+        for i in range(self.n_slots):
+            f, [ax1, ax2] = plt.subplots(1, 2, figsize=(32, 10))
+            ax1.imshow(out[0][i].transpose(1, 2, 0))
+            ax2.imshow(mask[0][i].transpose(1, 2, 0))
+            plt.savefig(f"{folderpath}/{filename}_slot_{i}.png")        
+            plt.close()
+
+            # f, [ax1, ax2] = plt.subplots(1, 2, figsize=(32, 10))
+            # ax1.imshow(slots[0][i].transpose(1, 2, 0))
+            # ax2.imshow(mask[0][i].transpose(1, 2, 0))
+            # plt.savefig(f"{folderpath}/{filename}_slot_{i}_slot.png")        
+            # plt.close()
 
 
 

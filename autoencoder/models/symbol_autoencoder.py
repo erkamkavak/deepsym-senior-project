@@ -1,24 +1,30 @@
 import torch
 import torch.nn as nn
 
-from .model_utils import Encoder, build_decoder
+from .model_utils import Encoder, build_decoder, BinarizedEncoder, convert_action_to_matrix
 
 class SymbolAutoEncoder(nn.Module): 
-    def __init__(self, input_channel_size, hidden_channel_sizes): 
-        super(SymbolAutoEncoder, self).__init__() 
+    def __init__(self, input_channel_size, hidden_channel_sizes, pretrained_encoder_name=None): 
+        super(SymbolAutoEncoder, self).__init__()
+        self.symbol_length = 8
 
-        self.feature_encoder = Encoder.load_model(input_channel_size, hidden_channel_sizes)
-        self.symbol_encoder = BinarizedEncoder()
+        self.feature_encoder = Encoder.load_model(input_channel_size, hidden_channel_sizes, pretrained_encoder_name)
+        self.symbol_encoder = BinarizedEncoder(self.symbol_length, input_channel_size, hidden_channel_sizes)
 
-        # TODO: change input channel size for decoder
-        hidden_channel_sizes[0] = hidden_channel_sizes[0]
+        # change input channel size for decoder(features + symbols + action)
+        hidden_channel_sizes[-1] += self.symbol_length + 1
         self.decoder = build_decoder(hidden_channel_sizes)
 
-    def forward(self, x, action):
-        features = self.feature_encoder(x) # B, C, H, W
-        symbols = self.symbol_encoder(x) 
+    def forward(self, state, action):
+        features = self.feature_encoder(state) # B, C, H, W
+        features_H, features_W = features.shape[2:4]
 
-        decoder_input = torch.cat([features, symbols, action])
+        symbols = self.symbol_encoder(state) # B, S, 1, 1
+        symbols = action.repeat(1, 1, features_H, features_W) # B, S, H, W
+
+        action = convert_action_to_matrix(action, features.shape[2], features.shape[3]) # B, 1, H, W
+
+        decoder_input = torch.cat([features, symbols, action], dim=1) # B, C + S + 1, H, W
         
         output = self.decoder(decoder_input)
         return output

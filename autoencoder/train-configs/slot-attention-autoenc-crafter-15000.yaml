@@ -1,0 +1,10 @@
+model_name: "slot-attention-autoenc-crafter-15000"
+dataset_name: "crafter-15000-fixed-view"
+model: 
+  name: SlotAttentionAutoEncoderV1
+  params:
+    inchannels: 3
+    spatial_size: [64, 64]
+    n_slots: 8
+    n_iters: 3
+trainer: AutoEncoderTrainer

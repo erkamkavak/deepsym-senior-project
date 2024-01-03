@@ -33,16 +33,19 @@ class BaseTrainer():
             os.makedirs(f"{self.save_path}/logs/val")
             os.makedirs(f"{self.save_path}/logs/test")
 
-    def save_output_ground_truth(self, output, ground_truth, filename, val=False):
+    def save_input_output_ground_truth(self, input, output, ground_truth, filename, val=False):
+        input = input.detach().cpu().numpy()
         output = output.detach().cpu().numpy()
         ground_truth = ground_truth.detach().cpu().numpy()
 
+        input = input * 0.5 + 0.5
         output = output * 0.5 + 0.5
         ground_truth = ground_truth * 0.5 + 0.5
 
-        f, [ax1, ax2] = plt.subplots(1, 2, figsize=(32, 10))
-        ax1.imshow(ground_truth[0].transpose(1, 2, 0))
-        ax2.imshow(output[0].transpose(1, 2, 0))
+        f, [ax1, ax2, ax3] = plt.subplots(1, 3, figsize=(32, 10))
+        ax1.imshow(input[0].transpose(1, 2, 0))
+        ax2.imshow(ground_truth[0].transpose(1, 2, 0))
+        ax3.imshow(output[0].transpose(1, 2, 0))
         folder = "val" if val else "test"
         plt.savefig(f"{self.save_path}/logs/{folder}/{filename}")
         plt.close()
@@ -113,7 +116,7 @@ class BaseTrainer():
                 total_loss += loss.item()
 
                 if curr_iter % 10 == 0:
-                    self.save_batch_logs()
+                    self.save_batch_logs(batch, save_path="{self.save_path}/logs/test/", curr_iter=curr_iter, val=False)
                 curr_iter += 1
         
         avg_loss = total_loss / len(self.data_loader)
